@@ -1,0 +1,13 @@
+{
+    "workingdir": "./",
+    "ssconfig": "/etc/shadowsocks.json",
+    "log": "collect.log",
+    "tempdir": "traffic/",
+    "db": {
+        "host": "localhost:3306",
+        "protocol": "tcp",
+        "user": "ss-panel",
+        "password": "6m7IsPB58gl%",
+        "dbname": "sspanel"
+    }
+}
