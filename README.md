@@ -13,8 +13,8 @@ Shadowsocks is able to configure multiple ports and passwords on a single instan
 * Edit config.json at your will
 * Run the program periodically using something like `crontab`
 
-    # $PATH is needed
-    * * * * * source /home/yourusername/.bash_profile && sudo $GOPATH/bin/ss-port-traffic-collect config.json
+        # $PATH is needed
+        * * * * * source /home/yourusername/.bash_profile && sudo $GOPATH/bin/ss-port-traffic-collect config.json
 
 ## Technical explaination
 
@@ -33,7 +33,7 @@ In order to avoid maintaining and syncing shadowsocks configuration changes, `ad
 
 The whole process can run concurrently, shown as follows:
 
-|addrule| -> |collectdata| -> |save|
-|createtable| --------------> |data|
+        |addrule| -> |collectdata| -> |save|
+        |createtable| --------------> |data|
 
 Thanks to Golang's concurrent mechanism, the implemetation is quite simple and straghtforward.
