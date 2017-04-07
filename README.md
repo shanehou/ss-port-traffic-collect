@@ -37,3 +37,11 @@ The whole process can run concurrently, shown as follows:
         |createtable| --------------> |data|
 
 Thanks to Golang's concurrent mechanism, the implemetation is quite simple and straghtforward.
+
+### Table structure
+
+The program will generate a table for every port, the structure is as follows:
+
+        | traffic_accu | BIGINT NOT NULL DEFAULT 0                       |
+        | traffic_diff | BIGINT NOT NULL DEFAULT 0                       |
+        | collect_time | TIMESTAMP DEFAULT CURRENT_TIMESTAMP PRIMARY KEY |
