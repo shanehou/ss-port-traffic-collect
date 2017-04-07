@@ -14,7 +14,7 @@ Shadowsocks is able to configure multiple ports and passwords on a single instan
 * Run the program periodically using something like `crontab`
 
     # $PATH is needed
-    * * * * * source /home/yourusername/.bash_profile && sudo $GOPATH/bin/ss-port-traffic-collect
+    * * * * * source /home/yourusername/.bash_profile && sudo $GOPATH/bin/ss-port-traffic-collect config.json
 
 ## Technical explaination
 
