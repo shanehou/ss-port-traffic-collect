@@ -212,6 +212,11 @@ func CreateTable(port int) bool {
 }
 
 func RecordTraffic(port int, traffic []uint64) {
+	// Avoid sparse tables
+	if traffic[1] == 0 {
+		TraceLogger.Printf("no traffic on port %+v since last check\n", port)
+		return
+	}
 	table_name := "port_" + strconv.Itoa(port)
 	if db == nil {
 		ErrorLogger.Printf("database handler is not initialized when creating %+v\n", table_name)
@@ -259,8 +264,13 @@ func ReadConfig(conf_path string) {
 
 func main() {
 	log.Printf("$PATH: %+v\n", os.Getenv("PATH"))
+
 	// Read global config
-	ReadConfig("config.json")
+	config_file := "config.json"
+	if len(os.Args) > 1 {
+		config_file = os.Args[1]
+	}
+	ReadConfig(config_file)
 	if config == nil {
 		log.Fatalln("config file not read")
 	}
