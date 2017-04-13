@@ -33,10 +33,6 @@ type Config struct {
 	Db         *DBConfig
 }
 
-type ShadowsocksConfig struct {
-	Port_password interface{}
-}
-
 var (
 	ErrorLogger *log.Logger
 	TraceLogger *log.Logger
@@ -44,17 +40,21 @@ var (
 	config      *Config
 )
 
-func InitLoggers(log_file io.Writer) {
+func initLoggers(log_file io.Writer) {
 	log_writer := io.MultiWriter(os.Stdout, log_file)
 	ErrorLogger = log.New(log_writer, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
 	TraceLogger = log.New(log_writer, "TRACE: ", log.Ldate|log.Ltime|log.Lshortfile)
 }
 
-func ParseShadowsocksConfig(conf_path string) []int {
+func parseShadowsocksConfig(conf_path string) []int {
 	ports := make([]int, 0, 20)
 	conf_content, err := ioutil.ReadFile(conf_path)
 	if err != nil {
 		ErrorLogger.Fatalf("open %+v failed: %+v\n", conf_path, err.Error())
+	}
+
+	type ShadowsocksConfig struct {
+		Port_password interface{}
 	}
 	var user_conf ShadowsocksConfig
 	err = json.Unmarshal(conf_content, &user_conf)
@@ -73,7 +73,7 @@ func ParseShadowsocksConfig(conf_path string) []int {
 	return ports
 }
 
-func GetLocalIPAddress() string {
+func getLocalIPAddress() string {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
 		ErrorLogger.Fatalf("get interface addrs failed: %+v\n", err.Error())
@@ -97,7 +97,7 @@ func GetLocalIPAddress() string {
 	return ""
 }
 
-func AddRule(port int, ip string) bool {
+func addRule(port int, ip string) bool {
 	TraceLogger.Printf("start adding rule on port %+v\n", port)
 	rule := []string{"OUTPUT", "-w", "-p", "tcp", "--sport", strconv.Itoa(port)}
 	check := exec.Command("iptables", append([]string{"-C"}, rule...)...)
@@ -120,12 +120,10 @@ func AddRule(port int, ip string) bool {
 	return true
 }
 
-func CollectTraffic(port int) (bool, uint64, uint64) {
+func collectTraffic(port int) (bool, uint64) {
 	TraceLogger.Printf("start collecting traffic on port %+v\n", port)
 	var traffic_accu uint64
-	var traffic_diff uint64
 	traffic_accu = 0
-	traffic_diff = 0
 
 	// Collect accumulated traffic
 	cmd := "iptables -vnL -t filter -w -x | grep spt:" + strconv.Itoa(port) + "$ | awk '{print $2}'"
@@ -134,26 +132,31 @@ func CollectTraffic(port int) (bool, uint64, uint64) {
 	current := strings.Trim(string(output), "\n\t ")
 	if err != nil {
 		ErrorLogger.Printf("collect accumulated traffic on port %+v failed: %+v, %+v\n", port, current, err.Error())
-		return false, traffic_accu, traffic_diff
+		return false, 0
 	}
 	traffic_accu, err = strconv.ParseUint(current, 10, 64)
 	if err != nil {
-		ErrorLogger.Printf("convert iptables traffic %+v to uint64 failed: %+v\n", current, err.Error())
-		return false, traffic_accu, traffic_diff
+		ErrorLogger.Printf("convert iptables traffic on port %+v to uint64 failed: %+v, traffic: %+v\n", port, err.Error(), current)
+		return false, 0
 	}
 	TraceLogger.Printf("accumulated traffic on port %+v: %+v\n", port, traffic_accu)
 
-	// Collect differential traffic
+	// Init state, or the traffic was reset
+	if traffic_accu == 0 {
+		return true, 0
+	}
+
+	// read last traffic
 	portfile, err := os.OpenFile(config.Tempdir+strconv.Itoa(port), os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		ErrorLogger.Printf("open last traffic file %+v failed: %+v\n", port, err.Error())
-		return false, traffic_accu, traffic_diff
+		return false, 0
 	}
 	defer portfile.Close()
 	portstr, err := ioutil.ReadAll(portfile)
 	if err != nil {
 		ErrorLogger.Printf("read last traffic file %+v failed: %+v\n", port, err.Error())
-		return false, traffic_accu, traffic_diff
+		return false, 0
 	}
 	last := strings.Trim(string(portstr), "\n\t ")
 	var traffic_last uint64
@@ -164,24 +167,33 @@ func CollectTraffic(port int) (bool, uint64, uint64) {
 		traffic_last, err = strconv.ParseUint(last, 10, 64)
 		if err != nil {
 			ErrorLogger.Printf("convert last time traffic file content %+v to uint64 failed: %+v\n", last, err.Error())
-			return false, traffic_accu, traffic_diff
+			return false, 0
 		}
 		TraceLogger.Printf("last traffic file %+v: %+v\n", port, traffic_last)
 	}
+
 	// Overwrite current traffic to last traffic file
 	if err := ioutil.WriteFile(config.Tempdir+strconv.Itoa(port), []byte(strconv.FormatUint(traffic_accu, 10)), 0644); err != nil {
 		ErrorLogger.Printf("write last traffic file failed: %+v\n", err.Error())
 	}
-	// Likely that the traffic is reset
+
+	// iptables was reset
 	if traffic_last > traffic_accu {
-		ErrorLogger.Printf("current accumulated traffic %+v is less than last traffic %+v\n", traffic_accu, traffic_last)
-		return true, traffic_accu, traffic_accu
+		TraceLogger.Printf("iptables on port %+v was reset, current traffic: %+v, last traffic: %+v\n", port, traffic_accu, traffic_last)
+		return true, traffic_accu
 	}
-	traffic_diff = traffic_accu - traffic_last
-	return true, traffic_accu, traffic_diff
+
+	// Traffic was reset
+	if traffic_last == 0 {
+		TraceLogger.Printf("traffic on port %+v was reset, last traffic: %+v\n", port, traffic_accu)
+		return true, traffic_accu
+	}
+
+	TraceLogger.Printf("traffic on port %+v: %+v, last traffic: %+v\n", port, traffic_accu, traffic_last)
+	return true, traffic_accu - traffic_last
 }
 
-func CreateTable(port int) bool {
+func createTable(port int) bool {
 	if port <= 1024 || port > 49151 {
 		ErrorLogger.Printf("port %+v is invalid\n", port)
 	}
@@ -192,7 +204,6 @@ func CreateTable(port int) bool {
 	}
 	TraceLogger.Printf("start creating table %+v\n", table_name)
 	stmt, err := db.Prepare(`CREATE TABLE IF NOT EXISTS ` + table_name + ` (
-			traffic_accu BIGINT NOT NULL DEFAULT 0,
 			traffic_diff BIGINT NOT NULL DEFAULT 0,
 			collect_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (collect_time)
@@ -211,9 +222,9 @@ func CreateTable(port int) bool {
 	return true
 }
 
-func RecordTraffic(port int, traffic []uint64) {
+func recordTraffic(port int, traffic uint64) {
 	// Avoid sparse tables
-	if traffic[1] == 0 {
+	if traffic == 0 {
 		TraceLogger.Printf("no traffic on port %+v since last check\n", port)
 		return
 	}
@@ -222,18 +233,14 @@ func RecordTraffic(port int, traffic []uint64) {
 		ErrorLogger.Printf("database handler is not initialized when creating %+v\n", table_name)
 		return
 	}
-	if len(traffic) != 2 {
-		ErrorLogger.Printf("traffic data is invalid: %+v\n", traffic)
-		return
-	}
 	TraceLogger.Printf("start recording traffic %+v on port %+v\n", traffic, port)
-	stmt, err := db.Prepare(`INSERT INTO ` + table_name + ` (traffic_accu, traffic_diff) VALUES (?, ?)`)
+	stmt, err := db.Prepare(`INSERT INTO ` + table_name + ` (traffic_diff) VALUES (?)`)
 	if err != nil {
 		ErrorLogger.Printf("prepare insert into failed: %+v\n", err.Error())
 		return
 	}
 	defer stmt.Close()
-	result, err := stmt.Exec(traffic[0], traffic[1])
+	result, err := stmt.Exec(traffic)
 	if err != nil {
 		ErrorLogger.Printf("execute insert into %+v failed: %+v\n", table_name, err.Error())
 		return
@@ -247,10 +254,10 @@ func RecordTraffic(port int, traffic []uint64) {
 		ErrorLogger.Printf("affected %+v rows\n", rows_affected)
 		return
 	}
-	TraceLogger.Printf("inserted %+v item (%+v, %+v) in %+v\n", rows_affected, traffic[0], traffic[1], table_name)
+	TraceLogger.Printf("inserted %+v item %+v in %+v\n", rows_affected, traffic, table_name)
 }
 
-func ReadConfig(conf_path string) {
+func readConfig(conf_path string) {
 	conf, err := ioutil.ReadFile(conf_path)
 	if err != nil {
 		log.Fatalf("read config file %+v failed: %+v\n", conf_path, err.Error())
@@ -270,7 +277,7 @@ func main() {
 	if len(os.Args) > 1 {
 		config_file = os.Args[1]
 	}
-	ReadConfig(config_file)
+	readConfig(config_file)
 	if config == nil {
 		log.Fatalln("config file not read")
 	}
@@ -286,7 +293,7 @@ func main() {
 		log.Fatalf("open error log file failed: %+v\n", err.Error())
 	}
 	defer log_file.Close()
-	InitLoggers(log_file)
+	initLoggers(log_file)
 
 	// Start main logic
 	start := time.Now()
@@ -309,18 +316,18 @@ func main() {
 	}
 
 	// Read and parse shadowsocks config
-	ports := ParseShadowsocksConfig(config.Ssconfig)
+	ports := parseShadowsocksConfig(config.Ssconfig)
 	TraceLogger.Printf("port list: %+v\n", ports)
 
 	// Cocurrently collect and save traffic data
-	local_ip_addr := GetLocalIPAddress()
+	local_ip_addr := getLocalIPAddress()
 	TraceLogger.Printf("local ip address: %+v\n", local_ip_addr)
 
 	// Prevent early exit
 	var final sync.WaitGroup
 	final.Add(len(ports))
 	// Store the traffic data
-	traffic := make(map[int][]uint64)
+	traffic := make(map[int]uint64)
 	// Lock-free status map
 	st1 := make(map[int]bool)
 	st2 := make(map[int]bool)
@@ -335,17 +342,17 @@ func main() {
 				return
 			}
 			// Add iptables rules (if not exist), and save the config
-			if !AddRule(port, local_ip_addr) {
+			if !addRule(port, local_ip_addr) {
 				st1[port] = false
 				return
 			}
 			// Get ports' traffic data by iptables
-			ok, traffic_accu, traffic_diff := CollectTraffic(port)
+			ok, traffic_diff := collectTraffic(port)
 			if !ok {
 				st1[port] = false
 				return
 			}
-			traffic[port] = append(traffic[port], traffic_accu, traffic_diff)
+			traffic[port] = traffic_diff
 		}(port, &wg)
 		// Create tables (if not exist) according to the port numbers in /etc/shadowsocks.json
 		go func(port int, wg *sync.WaitGroup) {
@@ -353,7 +360,7 @@ func main() {
 			if !st2[port] {
 				return
 			}
-			if !CreateTable(port) {
+			if !createTable(port) {
 				st2[port] = false
 				return
 			}
@@ -366,7 +373,7 @@ func main() {
 				return
 			}
 			// Calculate traffic difference using a local cache file, and insert all data to corresponding tables
-			RecordTraffic(port, traffic[port])
+			recordTraffic(port, traffic[port])
 		}(port, &wg)
 	}
 	final.Wait()

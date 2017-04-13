@@ -27,7 +27,7 @@ Shadowsocks is able to configure multiple ports and passwords on a single instan
 
 In order to avoid maintaining and syncing shadowsocks configuration changes, `addrule` will check your shadowsocks config file everytime to reflect newest config status, but will *not* add duplicated rules. `createtable` will also try to create every port table if it doesn't exist.
 
-`collectdata` will read accumulated traffic data on a certain port, but will also maintain a file that contains the traffic data last time it read, so that the differential traffic data could be calculated for better front-end display. If traffic data on a port is reset, accumulated traffic data will also be reset, but differential traffic data can continue.
+`collectdata` will read accumulated traffic data on a certain port, but will also maintain a file that contains the traffic data last time it read, so that the differential traffic data could be calculated. If traffic data on a port is reset, accumulated traffic data will also be reset, but differential traffic data can continue.
 
 ### Procedures
 
@@ -42,6 +42,5 @@ Thanks to Golang's concurrent mechanism, the implemetation is quite simple and s
 
 The program will generate a table for every port, the structure is as follows:
 
-        | traffic_accu | BIGINT NOT NULL DEFAULT 0                       |
         | traffic_diff | BIGINT NOT NULL DEFAULT 0                       |
         | collect_time | TIMESTAMP DEFAULT CURRENT_TIMESTAMP PRIMARY KEY |
