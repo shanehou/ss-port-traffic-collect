@@ -41,7 +41,7 @@ var (
 )
 
 func initLoggers(log_file io.Writer) {
-	log_writer := io.MultiWriter(os.Stdout, log_file)
+	log_writer := io.MultiWriter(log_file)
 	ErrorLogger = log.New(log_writer, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
 	TraceLogger = log.New(log_writer, "TRACE: ", log.Ldate|log.Ltime|log.Lshortfile)
 }
@@ -130,6 +130,10 @@ func collectTraffic(port int) (bool, uint64) {
 	collect := exec.Command("bash", "-c", cmd)
 	output, err := collect.CombinedOutput()
 	current := strings.Trim(string(output), "\n\t ")
+	newline_position := strings.Index(current, "\n")
+	if newline_position != -1 {
+		current = current[:newline_position]
+	}
 	if err != nil {
 		ErrorLogger.Printf("collect accumulated traffic on port %+v failed: %+v, %+v\n", port, current, err.Error())
 		return false, 0
